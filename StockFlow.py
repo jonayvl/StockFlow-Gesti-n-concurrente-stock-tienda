@@ -5,15 +5,16 @@ import time
 inventario = STOCK_INICIAL.copy()
 pedidos = PEDIDOS.copy()
 numeroCajas = []
-registro = []                                   # nuevo: aquí se guardan los mensajes
+registro = []                                  
 lock = threading.Lock()
 
 semaforo_terminales = threading.Semaphore(NUM_TERMINALES)
+lock_terminales = threading.RLock()
 
 def Repartir_Procesar():
-    caja = threading.current_thread().name                            # ahora sí se usa la barrera
+    caja = threading.current_thread().name                           
     while True:
-        pedido_procesor = None
+        pedido_procesar = None
         with lock:
             if not pedidos:
                 break
@@ -26,28 +27,28 @@ def Repartir_Procesar():
                 if cantidad <= inventario[producto]:
                     inventario[producto] -= cantidad
                     pedidos.pop(0)
-                    pedido_procesar = pedido # Guardamos el pedido para cobrarlo en el terminal
+                    pedido_procesar = pedido 
                 else:
                     pedidos.pop(0)
                     registro.append(f"sin stock para el pedido : {pedido} (caja {caja})")
             else:
                 pedidos.pop(0)
                 registro.append(f"pedido {pedido} descartado: producto inexistente")
-        if pedido_procesar:
-            semaforo_terminales.acquire()
-
-        with lock:
-            registro.append(f"Caja {caja} OBTIENE terminal de cobro")        
-
-        time.sleep(0.01)
         
-        with lock:
-            registro.append(f"consumido el pedido : {pedido_procesar} por la caja: {caja}")
-            registro.append(f"Caja {caja} LIBERA terminal de cobro")            
+        if pedido_procesar:
+            with lock_terminales:
+                semaforo_terminales.acquire()
 
-        semaforo_terminales.release()
+            with lock:
+                registro.append(f"Caja {caja} OBTIENE terminal de cobro")        
 
-    time.sleep(0.001)
+            time.sleep(0.01)
+        
+            with lock:
+                registro.append(f"consumido el pedido : {pedido_procesar} por la caja: {caja}")
+                registro.append(f"Caja {caja} LIBERA terminal de cobro")            
+
+            semaforo_terminales.release()
 
 
 for i in range(NUM_CAJAS):
@@ -58,7 +59,7 @@ for i in range(NUM_CAJAS):
 for hilo in numeroCajas:
     hilo.join()
 
-for linea in registro:                          # se imprime todo al final
+for linea in registro:                          
     print(linea)
 
 print("\n--- INVENTARIO FINAL ---")
