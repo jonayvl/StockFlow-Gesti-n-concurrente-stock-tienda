@@ -44,3 +44,45 @@ Por ejemplo, cuando se ejecuta `descontar()`, primero se adquiere el cerrojo y d
 Si utilizara un `Lock` normal, el programa se quedaría bloqueado porque intentaría adquirir el mismo cerrojo dos veces desde el mismo hilo.
 
 Con `RLock` esto no ocurre, ya que permite que el mismo hilo pueda adquirir el cerrojo varias veces sin bloquearse.
+
+## Fase 7 · Prevención de deadlock
+
+En esta fase he revisado los mecanismos de sincronización utilizados en el programa para evitar posibles bloqueos entre los hilos.
+
+### 1. Recursos de sincronización utilizados
+
+En el programa se utilizan los siguientes mecanismos:
+
+- `RLock`: protege el acceso al inventario y al registro de operaciones. También permite que un método protegido pueda llamar a otro método que utiliza el mismo cerrojo.
+- `Condition`: permite que las cajas esperen cuando no hay suficiente stock. Mientras esperan, liberan temporalmente el cerrojo para que los almacenes puedan realizar las reposiciones.
+- `Semaphore`: limita el número de cajas que pueden utilizar los terminales de cobro al mismo tiempo.
+- `Barrier`: permite que los revisores esperen hasta que todos hayan terminado su trabajo antes de continuar con el cierre.
+
+### 2. Orden de adquisición de recursos
+
+Para evitar posibles bloqueos, se ha tenido en cuenta el orden en el que se utilizan los mecanismos de sincronización.
+
+Las cajas realizan las operaciones sobre el inventario utilizando `Condition` y `RLock`. Una vez terminada esa parte, salen del bloque protegido y solicitan un terminal mediante `Semaphore`.
+
+De esta forma, una caja no mantiene bloqueado el inventario mientras espera a que quede libre un terminal de cobro.
+
+También se evita mantener los cerrojos durante operaciones que no necesitan proteger datos compartidos, como las pausas realizadas con `time.sleep()`.
+
+### 3. Posible situación de deadlock
+
+Un posible deadlock podría producirse si dos hilos adquieren los mismos recursos en un orden diferente.
+
+Por ejemplo:
+
+- El hilo A adquiere el `RLock` y después intenta conseguir el `Semaphore`.
+- El hilo B adquiere el `Semaphore` y después intenta conseguir el `RLock`.
+
+Si ambos se quedan esperando por el recurso que tiene el otro hilo, ninguno podrá continuar y el programa quedará bloqueado.
+
+### 4. ¿Cómo se evita?
+
+Para evitar esta situación, el programa sigue un orden de trabajo en el que las cajas terminan primero las operaciones protegidas del inventario y después solicitan el terminal de cobro.
+
+Además, se procura liberar los recursos lo antes posible y no mantenerlos ocupados mientras se realizan esperas innecesarias.
+
+Con estas medidas se reducen las posibilidades de que los hilos se queden bloqueados esperando unos por otros.
