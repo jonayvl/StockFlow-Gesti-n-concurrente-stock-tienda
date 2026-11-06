@@ -1,4 +1,4 @@
-from datos import STOCK_INICIAL, PEDIDOS, REPOSICIONES, NUM_CAJAS, NUM_TERMINALES
+from datos import STOCK_INICIAL, PEDIDOS, REPOSICIONES, NUM_CAJAS, NUM_TERMINALES, NUM_REVISORES
 import threading
 import time
 
@@ -10,12 +10,14 @@ reposiciones = REPOSICIONES.copy()
 
 numeroCajas = []
 numeroAlmacenes = []
+numeroRevisores = []
 registro = []
+revisados = 0  # CAMBIADO
 
 lock = threading.Lock()
-lock_terminales = threading.RLock()
-semaforo_terminales = threading.Semaphore(NUM_TERMINALES)
+semaforo_terminales = threading.Semaphore(NUM_TERMINALES)  # CAMBIADO: sin lock_terminales
 condicion = threading.Condition(lock)
+barrera = threading.Barrier(NUM_REVISORES)
 
 
 def reponer(producto):
@@ -63,7 +65,6 @@ def Repartir_Procesar():
             if producto in inventario:
                 while cantidad > inventario[producto] and reposiciones:
                     condicion.wait()
-                
 
                 if cantidad <= inventario[producto]:
                     inventario[producto] -= cantidad
@@ -78,23 +79,48 @@ def Repartir_Procesar():
                 )
 
         if pedido_procesar:
-            with lock_terminales:
-                semaforo_terminales.acquire()
+            with semaforo_terminales:  # CAMBIADO
+                with lock:
+                    registro.append(f"Caja {caja} OBTIENE terminal de cobro")
 
-            with lock:
-                registro.append(f"Caja {caja} OBTIENE terminal de cobro")
+                time.sleep(0.01)
 
-            time.sleep(0.01)
-
-            with lock:
-                registro.append(
-                    f"consumido el pedido : {pedido_procesar} por la caja: {caja}"
-                )
-                registro.append(f"Caja {caja} LIBERA terminal de cobro")
-
-            semaforo_terminales.release()
+                with lock:
+                    registro.append(
+                        f"consumido el pedido : {pedido_procesar} por la caja: {caja}"
+                    )
+                    registro.append(f"Caja {caja} LIBERA terminal de cobro")
 
         time.sleep(0.001)
+
+
+def revisar():  # CAMBIADO
+    global revisados
+    revisor = threading.current_thread().name
+
+    while True:
+        with lock:
+            if not pendientes:
+                break
+
+            producto = pendientes.popitem()[0]
+            revisados += 1
+
+            if inventario[producto] >= 0:
+                estado = "OK"
+            else:
+                estado = "ERROR"
+
+            registro.append(
+                f"{revisor} revisa {producto}: {inventario[producto]} {estado}"
+            )
+
+        time.sleep(0.01)
+
+    barrera.wait()
+
+    with lock:
+        registro.append(f"{revisor}: cierre autorizado")
 
 
 for i in range(NUM_ALMACENES):
@@ -119,8 +145,26 @@ for hilo in numeroAlmacenes:
 for hilo in numeroCajas:
     hilo.join()
 
+pendientes = inventario.copy()
+
+for i in range(NUM_REVISORES):
+    hilo = threading.Thread(
+        target=revisar,
+        name=f"revisor-{i + 1}"
+    )
+    numeroRevisores.append(hilo)
+    hilo.start()
+
+for hilo in numeroRevisores:
+    hilo.join()
+
 for linea in registro:
     print(linea)
+
+print("\n--- RESUMEN FINAL ---")
+print(f"Productos revisados: {revisados}")  # CAMBIADO
+print(f"Pedidos pendientes: {len(pedidos)}")
+print(f"Reposiciones pendientes: {len(reposiciones)}")
 
 print("\n--- INVENTARIO FINAL ---")
 print(inventario)
